@@ -205,3 +205,27 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# Python virtual environment
+venv/
+
+# Python cache files
+__pycache__/
+*.pyc
+
+# IDE / Editor specific files
+.vscode/
+.idea/
+
+# Sensitive configuration file
+# VERY IMPORTANT: This prevents your API keys from going to GitHub
+config/settings.yaml
+
+# Data files
+# You generally don't want to commit large data files to Git
+data/reddit_data.db
+data/embeddings/
+
+# Add other files you want to ignore
+*.log
