@@ -1,0 +1,57 @@
+# config/settings.yaml
+
+# Reddit API Credentials
+# You need to create a 'script' app on your Reddit account to get these:
+# https://www.reddit.com/prefs/apps
+reddit:
+  client_id: "LLN9DPnU7h6IgrxBOLveSg"
+  client_secret: "Sywh_jOmjLUrWji5DF6txtFgiiiNSg"
+  user_agent: "Reddit AI Dashboard v0.1 by u/your_username"
+
+# Database Configuration
+# This is the section our script is using right now!
+database:
+  path: "data/reddit_data.db"
+
+# AI API Configuration
+# Get a free API key from https://openrouter.ai/keys
+ai:
+  api_key: "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"
+  api_base: "https://openrouter.ai/api/v1"
+  model: "deepseek/deepseek-chat-v3.1:free" # Using a free model for now
+
+# Subreddits to Scrape
+# We will use this list in the next session.
+subreddits:
+  - "NationalServiceSG"
+  - "sofistock"
+  - "news"
+  - "wallstreetbets"
+  - "ValueInvesting"
+  - "askSingapore"
+  - "SGExams"
+  - "stocks"
+  - "worldnews"
+  - "singaporefi"
+
+# Scraper Configuration
+scraper:
+  # Options: "hot", "new", "top"
+  sort_by: "hot"
+  batch_size: 30
+
+  # How many posts to scrape per subreddit
+  limit: 50
+
+  # Only used if sort_by is "top". Options: "all", "year", "month", "week", "day"
+  time_filter: "week"
+
+  comments:
+    # Set to false to completely skip scraping comments (for fast test runs)
+    enabled: true
+
+    # How many of the top-sorted comments to process for each post.
+    limit_per_post: 50
+
+    # The minimum score a comment needs to have to be saved.
+    min_score: 5
