@@ -1,4 +1,4 @@
-from ai.summarize import summarize_text
+
 from ai.summarize import summarize_batch, fake_summarize_batch
 import praw
 import yaml
@@ -115,31 +115,46 @@ def main():
             # Loop through the original posts from the batch
             for p_data in batch_data:
                 post_obj = p_data['post']
+                result_obj = summaries_map.get(post_obj.id)
                 summary_text = summaries_map.get(post_obj.id)
-                
-                if summary_text:
-                    # Save the post with its summary
-                    cursor.execute('''
-                        INSERT INTO posts (id, subreddit, title, body, author, score, created_utc, url, summary)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        post_obj.id, post_obj.subreddit.display_name, post_obj.title, post_obj.selftext, 
-                        str(post_obj.author), post_obj.score, post_obj.created_utc, post_obj.url, summary_text
-                    ))
+
+                if result_obj and isinstance(result_obj, dict):
+                    # --- THIS IS THE KEY FIX ---
+                    # We get the 'summary' string out of the dictionary first.
+                    summary_text = result_obj.get("summary")
+                    input_tokens = result_obj.get("input_tokens", 0)
+                    output_tokens = result_obj.get("output_tokens", 0)
                     
-                    # Save the comments that we stored for this specific post
-                    for comment in p_data['comments']:
+                    
+                    if summary_text:
+                        print(f"    -> AI Summary: {summary_text}") # Optional: for real-time viewing
+                        
+                        # Now, we pass the 'summary_text' STRING to the database, not the whole dictionary.
                         cursor.execute('''
-                            INSERT OR IGNORE INTO comments (id, post_id, author, body, score, created_utc)
-                            VALUES (?, ?, ?, ?, ?, ?)
+                            INSERT INTO posts (id, subreddit, title, body, author, score, created_utc, url, summary)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ''', (
-                            comment.id, post_obj.id, str(comment.author), comment.body, 
-                            comment.score, comment.created_utc
+                            post_obj.id, post_obj.subreddit.display_name, post_obj.title, post_obj.selftext, 
+                            str(post_obj.author), post_obj.score, post_obj.created_utc, post_obj.url, summary_text
                         ))
-                    
-                    total_new_posts += 1
-                    total_summaries_generated += 1
-                    processed_count += 1
+                        
+                        # Save the comments that we stored for this specific post
+                        for comment in p_data['comments']:
+                            cursor.execute('''
+                                INSERT OR IGNORE INTO comments (id, post_id, author, body, score, created_utc)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            ''', (
+                                comment.id, post_obj.id, str(comment.author), comment.body, 
+                                comment.score, comment.created_utc
+                            ))
+                        
+                        total_new_posts += 1
+                        total_summaries_generated += 1
+                        processed_count += 1
+        else:
+            # If the batch failed, we explicitly do nothing.
+            # The function will return the initial value of processed_count, which is 0.
+            pass               
         
         return processed_count
     
@@ -149,6 +164,7 @@ def main():
     for subreddit_name in subreddits_to_scrape:
         print(f"\n--- Scraping r/{subreddit_name} ---")
         subreddit = reddit.subreddit(subreddit_name)
+        posts_processed_this_subreddit = 0
         
         batch_data_to_process = []
         BATCH_SIZE = scraper_config.get('batch_size', 10)
@@ -194,9 +210,12 @@ def main():
             # 3. If the batch is full, process it using our helper function
             if len(batch_data_to_process) >= BATCH_SIZE:
                 count = process_batch(batch_data_to_process, cursor)
+                
+                # We can now safely add the count (which will be a number)
                 posts_processed_this_subreddit += count
                 print(f"Processed a batch of {count} posts.")
-                batch_data_to_process = [] # Clear the batch
+                
+                batch_data_to_process = []
 
         # After the loop, process any remaining posts in the last batch
         if batch_data_to_process:

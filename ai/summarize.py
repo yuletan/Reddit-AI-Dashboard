@@ -4,20 +4,23 @@ import os
 import tiktoken 
 import json
 import time
+import requests
 
 def load_config():
     """Loads the configuration from settings.yaml."""
     config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'settings.yaml')
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
+    
 
+'''
 def summarize_text(text_to_summarize):
     """
     Summarizes a given text using the specified OpenRouter model.
     """
     config = load_config()
     ai_config = config.get('ai', {})
-    model_to_use = ai_config.get('model', 'deepseek/deepseek-chat-v3.1:free')
+    model_to_use = ai_config.get('model', 'qwen/qwen3-30b-a3b:free')
     
     client = openai.OpenAI(
         base_url=ai_config.get('api_base'),
@@ -50,60 +53,65 @@ def summarize_text(text_to_summarize):
         print(f"An error occurred while summarizing: {e}")
         return None, 0
     
-
+'''
 
 def summarize_batch(posts_to_summarize: list):
     """
-    Summarizes a batch of posts in a single API call.
+    Summarizes a batch of posts by sending them to our custom Colab-hosted AI model.
     'posts_to_summarize' should be a list of dictionaries, 
     each with an 'id' and 'text' key.
     """
-    config = load_config()
-    ai_config = config.get('ai', {})
-    model_to_use = ai_config.get('model', 'deepseek/deepseek-chat-v3.1:free')
-    client = openai.OpenAI(
-    base_url=ai_config.get('api_base'),
-    api_key=ai_config.get('api_key'),
-    )
+    
+    # !!! IMPORTANT !!!
+    # Paste the ngrok URL you copied from your Google Colab notebook here
+    # It must include the "/summarize" endpoint at the end.
+    colab_url = "https://unsimmered-unstout-kaydence.ngrok-free.dev/summarize"
 
-    # 1. Format the input for the AI
+    # 1. Format the input data
     input_data = {
         "discussions": posts_to_summarize
     }
-    input_json = json.dumps(input_data)
-
-    # 2. The new system prompt for batching
-    system_prompt = """
-    You are an efficient batch processing AI. You will be given a JSON object 
-    containing a list of Reddit discussions, each with a unique ID. 
-    Your task is to summarize EACH discussion individually. 
-    Respond with a single, valid JSON object that maps each original ID 
-    to its corresponding summary. Do not include any text outside of the JSON response.
-    """
+    
+    # Convert the dictionary to a JSON string
+    input_json = json.dumps(input_data, indent=2)
 
     try:
-        print(f"  -> Sending batch of {len(posts_to_summarize)} posts to AI...")
-        response = client.chat.completions.create(
-            model=model_to_use,
-            response_format={"type": "json_object"}, # Ask for JSON output
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": input_json},
-            ],
-            temperature=0.5,
+        print(f"  -> Sending batch of {len(posts_to_summarize)} posts to Colab AI...")
+        
+        # 2. Make the HTTP POST request to our server
+        response = requests.post(
+            colab_url, 
+            headers={
+                "Content-Type": "application/json",
+                # ngrok's free tier sometimes shows an interstitial page. This header helps bypass it.
+                "ngrok-skip-browser-warning": "true" 
+            },
+            data=input_json,
+            timeout=300  # Give it up to 5 minutes to process a large batch
         )
         
-        # 3. Parse the JSON response from the AI
-        response_content = response.choices[0].message.content
-        summaries_map = json.loads(response_content)
+        # Raise an exception if the request was not successful (e.g., 404 Not Found, 500 Internal Server Error)
+        response.raise_for_status()
+        
+        # 3. Parse the JSON response from the server
+        summaries_map = response.json()
         return summaries_map
 
+    except requests.exceptions.RequestException as e:
+        print(f"\n--- ERROR: Could not connect to the Colab AI server ---")
+        print(f"--- Details: {e} ---")
+        print("--- Is the Colab notebook still running and is the ngrok URL correct? ---")
+        return None
     except json.JSONDecodeError:
-        print("  -> ERROR: AI did not return valid JSON. Batch failed.")
+        print("\n--- ERROR: The server's response was not valid JSON ---")
+        print("--- RESPONSE TEXT FROM SERVER ---")
+        print(response.text)
+        print("---------------------------------\n")
         return None
     except Exception as e:
-        print(f"  -> An error occurred during batch summarization: {e}")
+        print(f"\n--- An unexpected error occurred during batch summarization: {e} ---")
         return None
+
     
 def fake_summarize_batch(posts_to_summarize: list):
     """

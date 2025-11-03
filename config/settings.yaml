@@ -16,9 +16,10 @@ database:
 # AI API Configuration
 # Get a free API key from https://openrouter.ai/keys
 ai:
-  api_key: "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"
+  api_key: "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"
   api_base: "https://openrouter.ai/api/v1"
-  model: "deepseek/deepseek-chat-v3.1:free" # Using a free model for now
+  model: "qwen/qwen3-30b-a3b:free" # Using a free model for now
+  num_clusters: 10 # Change this to experiment
 
 # Subreddits to Scrape
 # We will use this list in the next session.
@@ -38,10 +39,10 @@ subreddits:
 scraper:
   # Options: "hot", "new", "top"
   sort_by: "hot"
-  batch_size: 30
+  batch_size: 5
 
   # How many posts to scrape per subreddit
-  limit: 50
+  limit: 30
 
   # Only used if sort_by is "top". Options: "all", "year", "month", "week", "day"
   time_filter: "week"
@@ -51,7 +52,7 @@ scraper:
     enabled: true
 
     # How many of the top-sorted comments to process for each post.
-    limit_per_post: 50
+    limit_per_post: 20
 
     # The minimum score a comment needs to have to be saved.
     min_score: 5
