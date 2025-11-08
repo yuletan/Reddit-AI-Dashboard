@@ -2,6 +2,7 @@ import sqlite3
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import KMeans
+import argparse
 import yaml
 import os
 
@@ -15,24 +16,65 @@ def main():
     """
     Loads summarized posts, clusters them using K-Means,
     and updates the database with cluster IDs.
+    Can run in two modes:
+    1. Default (Incremental): Only clusters new posts.
+    2. Recluster (--recluster): Wipes all old clusters and re-clusters everything.
     """
+    ### NEW - Set up the argument parser
+    parser = argparse.ArgumentParser(description="Cluster Reddit post summaries.")
+    parser.add_argument(
+        '--recluster',
+        action='store_true',  # This makes it a flag, e.g., `python cluster.py --recluster`
+        help="Clear all existing cluster IDs and recluster all posts from scratch."
+    )
+    args = parser.parse_args()
+
     print("--- Starting Clustering Process ---")
     config = load_config()
     db_path = os.path.join(os.path.dirname(__file__), '..', config['database']['path'])
     
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    ### NEW - Logic to handle the --recluster flag
+    if args.recluster:
+        print("!!! RECLUSTER MODE ENABLED !!!")
+        print("    -> Clearing all existing cluster IDs from the database...")
+        try:
+            # This is the crucial step: reset all cluster_id's to NULL
+            cursor.execute("UPDATE posts SET cluster_id = NULL")
+            conn.commit()
+            print("    -> All cluster IDs have been reset.")
+        except Exception as e:
+            print(f"Error resetting cluster IDs: {e}")
+            conn.close()
+            return
+        
+        # In recluster mode, we select ALL posts that have a summary
+        query = "SELECT id, summary FROM posts WHERE summary IS NOT NULL AND summary != 'NoSummaryGenerated'"
+        print("    -> Loading ALL summarized posts for reclustering.")
+    else:
+        # This is the original, incremental behavior
+        print("--- INCREMENTAL MODE ---")
+        query = "SELECT id, summary FROM posts WHERE summary IS NOT NULL AND summary != 'NoSummaryGenerated' AND cluster_id IS NULL"
+        print("    -> Loading only new, unclustered posts.")
+
     # 1. Load summarized posts from the database using pandas
     try:
-        conn = sqlite3.connect(db_path)
-        # Select only posts that have a summary but have not yet been clustered
-        query = "SELECT id, summary FROM posts WHERE summary IS NOT NULL AND cluster_id IS NULL"
         df = pd.read_sql_query(query, conn)
-        conn.close()
     except Exception as e:
         print(f"Error loading data from database: {e}")
+        conn.close()
         return
+    finally:
+        # We're done with the initial connection for now
+        conn.close()
 
     if df.empty or 'summary' not in df.columns or df['summary'].dropna().empty:
-        print("No new summaries found to cluster. Exiting.")
+        if args.recluster:
+            print("No summaries found in the database to cluster. Exiting.")
+        else:
+            print("No new summaries found to cluster. Exiting.")
         return
 
     # Ensure we only work with rows that have a valid summary

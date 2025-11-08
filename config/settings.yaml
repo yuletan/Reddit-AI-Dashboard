@@ -15,20 +15,27 @@ database:
 
 gemini:
   api_key: "AIzaSyDqr_v0wK8UTrttDkrCu-fCubYxS00pl8o"
-  model_name: "gemini-2.5-pro"
+  model_name: "gemini-2.5-flash-lite-preview-09-2025"
+
+#gemini-2.5-pro
+#gemini-2.5-flash
+#gemini-2.5-flash-preview-09-2025
+#gemini-2.5-flash-lite
+#gemini-2.5-flash-lite-preview-09-2025
+
 # AI API Configuration
 # Get a free API key from https://openrouter.ai/keys
 ai:
   api_key: "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"
   api_base: "https://openrouter.ai/api/v1"
   model: "deepseek/deepseek-chat-v3.1:free" # Using a free model for now
-  num_clusters: 20 # Change this to experiment
+  num_clusters: 30 # Change this to experiment
 
 # Subreddits to Scrape
 # We will use this list in the next session.
 subreddits:
   - "NationalServiceSG"
-  - "sofistock"
+  - "LocalLLaMA"
   - "news"
   - "wallstreetbets"
   - "ValueInvesting"
@@ -38,6 +45,8 @@ subreddits:
   - "worldnews"
   - "singaporefi"
   - "JapanTravelTips"
+  - "Xiaomi"
+  - "oneplus"
 
 # Scraper Configuration
 scraper:
@@ -46,7 +55,7 @@ scraper:
   batch_size: 20
 
   # How many posts to scrape per subreddit
-  limit: 200
+  limit: 60
 
   # Only used if sort_by is "top". Options: "all", "year", "month", "week", "day"
   time_filter: "month"

@@ -1,11 +1,12 @@
 
 '''from ai.summarize import summarize_text'''
+from concurrent.futures import ThreadPoolExecutor
 from ai.summarize import summarize_batch
 import praw
 import yaml
 import sqlite3
 import os
-import time 
+import time
 import re
 
 def load_config():
@@ -75,10 +76,44 @@ def clean_summary(summary_text: str) -> str:
         
     return text
 
+def fetch_post_data(post, scraper_config):
+    """Fetches comments for a single post and prepares its data for summarization."""
+    try:
+        print(f"  -> Starting comment fetch for post: '{post.title[:50]}...'")
+        post.comments.replace_more(limit=0)  # This is the network call we want to parallelize
+        top_comments = post.comments.list()[:scraper_config.get('comments', {}).get('limit_per_post', 10)]
+        
+        discussion_text = f"Post Title: {post.title}\nPost Body: {post.selftext}\n\n--- Comments ---\n"
+        for comment in top_comments:
+            if hasattr(comment, 'body'):
+                discussion_text += f"Comment: {comment.body}\n"
+
+        if len(discussion_text) < 200:
+            print(f"  -> Skipping post with insufficient discussion text: '{post.title[:50]}...'")
+            return None
+
+        max_chars = 20000
+        if len(discussion_text) > max_chars:
+            discussion_text = discussion_text[:max_chars]
+
+        return {
+            "id": post.id,
+            "text": discussion_text,
+            "post_obj": post,
+            "top_comments": top_comments
+        }
+    except Exception as e:
+        print(f"  -> ERROR fetching comments for post {post.id}: {e}")
+        return None
+
 def main():
     """Initializes Reddit, scrapes posts, summarizes them one-by-one, and stores them."""
     start_time = time.time()
     total_new_posts = 0
+    api_calls = {
+        "reddit": 0,
+        "ai_summarizer": 0
+    }
     
     config = load_config()
     db_path = os.path.join(os.path.dirname(__file__), '..', config['database']['path'])
@@ -96,7 +131,7 @@ def main():
         return
 
     scraper_config = config.get('scraper', {})
-    limit = scraper_config.get('limit', 30) # A smaller limit is better for one-by-one
+    limit = scraper_config.get('limit', 100) # A smaller limit is better for one-by-one
 
     batch_size = scraper_config.get('batch_size', 5)
     
@@ -109,60 +144,53 @@ def main():
     for subreddit_name in subreddits_to_scrape:
         print(f"\n--- Scraping r/{subreddit_name} ---")
         subreddit = reddit.subreddit(subreddit_name)
+        api_calls["reddit"] += 1
+        # Stage 1: Get post listings and filter out what we already have
         posts_to_scrape = subreddit.hot(limit=limit)
-        posts_processed_this_subreddit = 0
+        cursor.execute("SELECT id FROM posts")
+        existing_post_ids = {row[0] for row in cursor.fetchall()}
+        new_posts = [post for post in posts_to_scrape if post.id not in existing_post_ids]
+        
+        if not new_posts:
+            print(f"No new posts found in r/{subreddit_name}. Moving on.")
+            continue
+            
+        print(f"Found {len(new_posts)} new posts to process. Fetching comments concurrently...")
+        api_calls["reddit"] += len(new_posts)
+        # Stage 2: Fetch comments for ALL new posts concurrently
+        # 3. Use a ThreadPoolExecutor to fetch comments for all new posts at once in parallel not waiting individually
+        all_posts_data = []
+        # Using max_workers=10 to avoid hitting rate limits too aggressively. Adjust as needed.
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            # The map function runs fetch_post_data for each post in the new_posts list
+            results = executor.map(fetch_post_data, new_posts, [scraper_config]*len(new_posts))
+            # Filter out any 'None' results from posts that were skipped or had errors
+            all_posts_data = [result for result in results if result is not None]
+
+        print(f"\nFinished fetching comments. {len(all_posts_data)} posts are ready for summarization.")
+        
+        # 4. Now, process the pre-fetched data in batches for summarization
         post_batch = []
-        for post in posts_to_scrape:
-            # 1. Check if post already exists
-            cursor.execute("SELECT id FROM posts WHERE id = ?", (post.id,))
-            if cursor.fetchone() is not None:
-                continue
-
-            print(f"Found new post: '{post.title[:50]}...'")
-            
-            # 3. Build the text for summarization
-            post.comments.replace_more(limit=0)
-            top_comments = post.comments.list()[:scraper_config.get('comments', {}).get('limit_per_post', 10)]
-            discussion_text = f"Post Title: {post.title}\nPost Body: {post.selftext}\n\n--- Comments ---\n"
-            for comment in top_comments:
-                if hasattr(comment, 'body'):
-                    discussion_text += f"Comment: {comment.body}\n"
-
-            if len(discussion_text) < 200:
-                print(f"  -> Skipping post with insufficient discussion text: '{post.title[:50]}...'")
-                continue
-            
-            max_chars = 20000
-            if len(discussion_text) > max_chars:
-                print(f"    -> Truncating text from {len(discussion_text)} to {max_chars} characters.")
-                discussion_text = discussion_text[:max_chars]
-
-            post_data = {
-                "id": post.id,
-                "text": discussion_text,
-                "post_obj": post,
-                "top_comments": top_comments
-            }
+        posts_processed_this_subreddit = 0
+        # Stage 3: Loop through the PRE-FETCHED data to batch and summarize
+        # This loop is very fast because there are no network calls inside it.
+        for post_data in all_posts_data:
             post_batch.append(post_data)
             print(f"  -> Added to batch. Batch size is now {len(post_batch)}/{batch_size}.")
 
-            # 5. When the batch is full, send it to our new Gemini batch function.
             if len(post_batch) >= batch_size:
-                print(f"\n--- Batch full. Processing {len(post_batch)} posts with Gemini... ---")
-                
+                print(f"\n--- Batch full. Processing {len(post_batch)} posts with AI... ---")
+                api_calls["ai_summarizer"] += 1
                 summaries_map = summarize_batch([{"id": p["id"], "text": p["text"]} for p in post_batch])
 
                 if summaries_map:
                     for p_data in post_batch:
                         post_obj = p_data["post_obj"]
-                        # Get the summary from the map returned by the API
                         raw_summary = summaries_map.get(post_obj.id, "NoSummaryGenerated")
-                        print(f"    -> Raw AI Summary for {post_obj.id}: '{raw_summary}'")
                         summary_text = clean_summary(raw_summary)
 
                         if summary_text != "NoSummaryGenerated":
                             print(f"    -> Saving summary for post: {post_obj.id}")
-                            # (The database insertion code is the same as your original)
                             cursor.execute('''
                                 INSERT INTO posts (id, subreddit, title, body, author, score, created_utc, url, summary)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -170,34 +198,31 @@ def main():
                                 post_obj.id, post_obj.subreddit.display_name, post_obj.title, post_obj.selftext,
                                 str(post_obj.author), post_obj.score, post_obj.created_utc, post_obj.url, summary_text
                             ))
-
                             for comment in p_data["top_comments"]:
                                 if hasattr(comment, 'id'):
                                     cursor.execute('INSERT OR IGNORE INTO comments (id, post_id, author, body, score, created_utc) VALUES (?, ?, ?, ?, ?, ?)',
                                                    (comment.id, post_obj.id, str(comment.author), comment.body, comment.score, comment.created_utc))
-                            
                             posts_processed_this_subreddit += 1
                             total_new_posts += 1
                         else:
                             print(f"    -> AI failed to generate summary for post {post_obj.id}. Skipping.")
                 
-                # IMPORTANT: Clear the batch to start collecting the next one!
                 post_batch = []
-                print("--- Batch processing complete. Resuming scraping. ---\n")
+                conn.commit() # Commit after each successful batch
+                print("--- Batch processing complete. ---\n")
 
-        if post_batch: # Check for any remaining posts that didn't fill a full batch
-            print(f"\n--- Processing final batch of {len(post_batch)} leftover posts... ---")
+        # Process any remaining posts that didn't fill a full batch
+        if post_batch:
+            print(f"\n--- Processing final batch of {len(post_batch)} posts... ---")
+            api_calls["ai_summarizer"] += 1
             summaries_map = summarize_batch([{"id": p["id"], "text": p["text"]} for p in post_batch])
-
             if summaries_map:
                 for p_data in post_batch:
                     post_obj = p_data["post_obj"]
                     raw_summary = summaries_map.get(post_obj.id, "NoSummaryGenerated")
-                    print(f"    -> Raw AI Summary for {post_obj.id}: '{raw_summary}'")
                     summary_text = clean_summary(raw_summary)
                     if summary_text != "NoSummaryGenerated":
                         print(f"    -> Saving summary for post: {post_obj.id}")
-                        # Using the full, correct insertion code here
                         cursor.execute('''
                             INSERT INTO posts (id, subreddit, title, body, author, score, created_utc, url, summary)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -205,61 +230,61 @@ def main():
                             post_obj.id, post_obj.subreddit.display_name, post_obj.title, post_obj.selftext,
                             str(post_obj.author), post_obj.score, post_obj.created_utc, post_obj.url, summary_text
                         ))
-
                         for comment in p_data["top_comments"]:
                             if hasattr(comment, 'id'):
-                                cursor.execute('''
-                                    INSERT OR IGNORE INTO comments (id, post_id, author, body, score, created_utc) 
-                                    VALUES (?, ?, ?, ?, ?, ?)
-                                ''', (comment.id, post_obj.id, str(comment.author), comment.body, comment.score, comment.created_utc))
+                                cursor.execute('INSERT OR IGNORE INTO comments (id, post_id, author, body, score, created_utc) VALUES (?, ?, ?, ?, ?, ?)',
+                                               (comment.id, post_obj.id, str(comment.author), comment.body, comment.score, comment.created_utc))
                         posts_processed_this_subreddit += 1
                         total_new_posts += 1
-
-            # Commit all changes for this subreddit
-            conn.commit()
-            print(f"Finished r/{subreddit_name}. Stored {posts_processed_this_subreddit} new summarized posts.")
-
-            # 4. Summarize this single post
-            '''raw_summary = summarize_text(discussion_text)
-            print(f"DEBUG: Raw AI Response: '{raw_summary}'")
-            
-            # 5. Clean the summary
-            summary_text = clean_summary(raw_summary)
-            
-            
-            # 6. Save to database if the summary is valid
-            if summary_text != "NoSummaryGenerated":
-                print(f"    -> AI Summary: {summary_text[:100]}...")
-                cursor.execute('
-                    INSERT INTO posts (id, subreddit, title, body, author, score, created_utc, url, summary)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ', (
-                    post.id, post.subreddit.display_name, post.title, post.selftext, 
-                    str(post.author), post.score, post.created_utc, post.url, summary_text
-                ))
-                
-                # Save comments as before
-                for comment in top_comments:
-                    if hasattr(comment, 'id'):
-                        cursor.execute('INSERT OR IGNORE INTO comments (id, post_id, author, body, score, created_utc) VALUES (?, ?, ?, ?, ?, ?)',
-                                       (comment.id, post.id, str(comment.author), comment.body, comment.score, comment.created_utc))
-                
-                conn.commit()
-                posts_processed_this_subreddit += 1
-                total_new_posts += 1
-            
-            
-            else:
-                print("    -> AI failed to generate a valid summary. Skipping post.")'''
-
-
-
+        
+        conn.commit()
+        print(f"Finished r/{subreddit_name}. Stored {posts_processed_this_subreddit} new summarized posts.")
+        ### MODIFICATION END
+        
     conn.close()
     end_time = time.time()
     print("\n--- SCRAPING & ANALYSIS COMPLETE ---")
     print(f"      Total Time Elapsed: {end_time - start_time:.2f} seconds")
-    print(f"        Total New Posts Found: {total_new_posts}")
+    print(f"       Total New Posts Found: {total_new_posts}")
+    print("--- API USAGE REPORT ---")
+    print(f"    Total Calls to Reddit API: {api_calls['reddit']}")
+    print(f"    Total Calls to AI Summarizer: {api_calls['ai_summarizer']}")
     print("------------------------------------")
+
+# 4. Summarize this single post
+'''raw_summary = summarize_text(discussion_text)
+print(f"DEBUG: Raw AI Response: '{raw_summary}'")
+
+# 5. Clean the summary
+summary_text = clean_summary(raw_summary)
+
+
+# 6. Save to database if the summary is valid
+if summary_text != "NoSummaryGenerated":
+    print(f"    -> AI Summary: {summary_text[:100]}...")
+    cursor.execute('
+        INSERT INTO posts (id, subreddit, title, body, author, score, created_utc, url, summary)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ', (
+        post.id, post.subreddit.display_name, post.title, post.selftext, 
+        str(post.author), post.score, post.created_utc, post.url, summary_text
+    ))
+    
+    # Save comments as before
+    for comment in top_comments:
+        if hasattr(comment, 'id'):
+            cursor.execute('INSERT OR IGNORE INTO comments (id, post_id, author, body, score, created_utc) VALUES (?, ?, ?, ?, ?, ?)',
+                            (comment.id, post.id, str(comment.author), comment.body, comment.score, comment.created_utc))
+    
+    conn.commit()
+    posts_processed_this_subreddit += 1
+    total_new_posts += 1
+
+
+else:
+    print("    -> AI failed to generate a valid summary. Skipping post.")'''
+
+
 
 if __name__ == "__main__":
     main()
