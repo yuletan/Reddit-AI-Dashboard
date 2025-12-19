@@ -151,7 +151,7 @@ Your web browser should automatically open with the dashboard. If not, open the 
 └── requirements.txt       # Python package dependencies
 ```
 
-## Configuration Details (`config/settings.yaml`)
+## 1. Configuration Details (`config/settings.yaml`)
 
 -   **`reddit`**: Credentials for the Reddit API. You need to create a "script" app on Reddit's developer portal.
     -   `client_id`: Your Reddit app's client ID.
