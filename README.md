@@ -168,8 +168,6 @@ Your web browser should automatically open with the dashboard. If not, open the 
 -   **`ai`**:
     -   `num_clusters`: The number of distinct topics K-Means should try to find in the data.
 -   **`subreddits`**: A YAML list of subreddits to scrape (do not include the "r/").
-```
-
 
 ### 2. `requirements.txt`
 
