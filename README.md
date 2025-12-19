@@ -13,7 +13,7 @@ This project is a complete pipeline that automatically scrapes hot discussions f
 ---
 
 ### Video Link:
-[Link Text](https://example.com)
+[Link Text](https://youtu.be/IdnuqCl5Z-k?si=f0f6248VrEb2NcAw)
 
 ## How It Works: The Data Pipeline
 
