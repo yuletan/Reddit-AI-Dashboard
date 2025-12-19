@@ -1,4 +1,4 @@
-# Reddit Insight AI
+# Reddit AI Dashboard
 
 This project is a complete pipeline that automatically scrapes hot discussions from specified subreddits, uses the Google Gemini API to generate concise summaries, groups them into thematic clusters using machine learning, and presents the results in an interactive web dashboard.
 
@@ -85,8 +85,8 @@ pip install -r requirements.txt
 
 You must provide your own API keys and settings for the script to work.
 
-1.  Navigate to the `config` directory.
-2.  **Rename** the file `settings.yaml.example` to `settings.yaml`.
+1.  Create and navigate the `config` directory.
+2.  **Create** the file `settings.yaml`.
 3.  Open `settings.yaml` with a text editor and fill in your credentials. See the "Configuration" section below for details.
 
 ---
@@ -170,7 +170,6 @@ Your web browser should automatically open with the dashboard. If not, open the 
 -   **`subreddits`**: A YAML list of subreddits to scrape (do not include the "r/").
 ```
 
----
 
 ### 2. `requirements.txt`
 
@@ -198,11 +197,10 @@ plotly
 requests
 ```
 
----
 
-### 3. `settings.yaml.example`
+### 3. `settings.yaml`
 
-Create a new file named `settings.yaml.example` inside the `config/` directory. This serves as a template so you never accidentally commit your secret keys to Git.
+Create a new file named `settings.yaml` inside the `config/` directory. This serves as a template so you never accidentally commit your secret keys to Git.
 
 ```yaml
 # ------------------------------------------------------------------
