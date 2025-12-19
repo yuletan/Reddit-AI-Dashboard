@@ -57,6 +57,9 @@ scraper:
   # How many posts to scrape per subreddit
   limit: 60
 
+  # Max characters to send to AI for summarization (to avoid exceeding token limits)
+  max_discussion_chars: 20000
+
   # Only used if sort_by is "top". Options: "all", "year", "month", "week", "day"
   time_filter: "month"
 
@@ -69,3 +72,4 @@ scraper:
 
     # The minimum score a comment needs to have to be saved.
     min_score: 5
+
