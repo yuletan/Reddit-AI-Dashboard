@@ -220,7 +220,7 @@ __pycache__/
 
 # Sensitive configuration file
 # VERY IMPORTANT: This prevents your API keys from going to GitHub
-config\settings.yaml
+config/settings.yaml
 
 # Data files
 # You generally don't want to commit large data files to Git
