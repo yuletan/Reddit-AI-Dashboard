@@ -1,6 +1,5 @@
 # Reddit AI Dashboard
 
-## [Link text](https://youtu.be/70EgjgG-ceI?si=10ZSFV2av1Ca5OEx)
 
 This project is a complete pipeline that automatically scrapes hot discussions from specified subreddits, uses the Google Gemini API to generate concise summaries, groups them into thematic clusters using machine learning, and presents the results in an interactive web dashboard.
 
@@ -264,3 +263,6 @@ subreddits:
   - programming
   - python
 ```
+
+
+## [Link text](https://youtu.be/70EgjgG-ceI?si=10ZSFV2av1Ca5OEx)
